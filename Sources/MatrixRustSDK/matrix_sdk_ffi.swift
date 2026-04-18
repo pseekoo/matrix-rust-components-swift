@@ -24723,6 +24723,17 @@ public struct TimelineConfiguration {
      * delegate.
      */
     public var reportUtds: Bool
+    /**
+     * If set, cap how many of the room's cached events are seeded into
+     * the timeline on initial subscribe. Older events remain in the
+     * room event cache and become available via `paginate_backwards`.
+     *
+     * Intended for latency-sensitive UIs opening rooms with very large
+     * cached backlogs (bot channels, busy public rooms). Leaving this
+     * unset preserves the historical behaviour of replaying every
+     * cached event on first subscribe.
+     */
+    public var initialEventLimit: UInt32?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -24751,13 +24762,24 @@ public struct TimelineConfiguration {
         /**
          * Whether this timeline instance should report UTDs through the client's
          * delegate.
-         */reportUtds: Bool) {
+         */reportUtds: Bool, 
+        /**
+         * If set, cap how many of the room's cached events are seeded into
+         * the timeline on initial subscribe. Older events remain in the
+         * room event cache and become available via `paginate_backwards`.
+         *
+         * Intended for latency-sensitive UIs opening rooms with very large
+         * cached backlogs (bot channels, busy public rooms). Leaving this
+         * unset preserves the historical behaviour of replaying every
+         * cached event on first subscribe.
+         */initialEventLimit: UInt32?) {
         self.focus = focus
         self.filter = filter
         self.internalIdPrefix = internalIdPrefix
         self.dateDividerMode = dateDividerMode
         self.trackReadReceipts = trackReadReceipts
         self.reportUtds = reportUtds
+        self.initialEventLimit = initialEventLimit
     }
 
     
@@ -24781,7 +24803,8 @@ public struct FfiConverterTypeTimelineConfiguration: FfiConverterRustBuffer {
                 internalIdPrefix: FfiConverterOptionString.read(from: &buf), 
                 dateDividerMode: FfiConverterTypeDateDividerMode.read(from: &buf), 
                 trackReadReceipts: FfiConverterTypeTimelineReadReceiptTracking.read(from: &buf), 
-                reportUtds: FfiConverterBool.read(from: &buf)
+                reportUtds: FfiConverterBool.read(from: &buf), 
+                initialEventLimit: FfiConverterOptionUInt32.read(from: &buf)
         )
     }
 
@@ -24792,6 +24815,7 @@ public struct FfiConverterTypeTimelineConfiguration: FfiConverterRustBuffer {
         FfiConverterTypeDateDividerMode.write(value.dateDividerMode, into: &buf)
         FfiConverterTypeTimelineReadReceiptTracking.write(value.trackReadReceipts, into: &buf)
         FfiConverterBool.write(value.reportUtds, into: &buf)
+        FfiConverterOptionUInt32.write(value.initialEventLimit, into: &buf)
     }
 }
 
