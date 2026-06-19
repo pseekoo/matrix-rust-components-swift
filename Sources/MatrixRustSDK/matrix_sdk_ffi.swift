@@ -8180,6 +8180,15 @@ public protocol RoomProtocol: AnyObject, Sendable {
     func removeRoomAliasFromRoomDirectory(alias: String) async throws  -> Bool
     
     /**
+     * Removes a tag from the room.
+     *
+     * `tag` is the wire-form tag name (e.g. `"u.work"`, `"m.favourite"`).
+     * If the tag is not present the upstream SDK still issues the delete
+     * request and returns Ok.
+     */
+    func removeTag(tag: String) async throws 
+    
+    /**
      * Reports an event from the room.
      *
      * # Arguments
@@ -8266,6 +8275,19 @@ public protocol RoomProtocol: AnyObject, Sendable {
     func setName(name: String) async throws 
     
     func setOwnMemberDisplayName(displayName: String?) async throws 
+    
+    /**
+     * Sets a tag on the room (creates or updates the tag).
+     *
+     * `tag` is the wire-form tag name (e.g. `"u.work"`, `"m.favourite"`,
+     * `"m.lowpriority"`, or any custom `m.*` / `u.*` value). Parsing is
+     * delegated to ruma's `TagName::from(&str)` which dispatches to the
+     * correct enum variant.
+     *
+     * `tag_order` is the optional sort order (`Option<f64>`) — `None` writes
+     * a `TagInfo` with no order field.
+     */
+    func setTag(tag: String, tagOrder: Double?) async throws 
     
     /**
      * Set a MSC4306 subscription to a thread in this room, based on the thread
@@ -8358,6 +8380,18 @@ public protocol RoomProtocol: AnyObject, Sendable {
     func successorRoom()  -> SuccessorRoom?
     
     func suggestedRoleForUser(userId: String) async throws  -> RoomMemberRole
+    
+    /**
+     * Reads the room's `m.tag` account-data event and returns a
+     * `HashMap<tag_id, order>` map.
+     *
+     * - Keys are the wire-form tag name (`"u.work"`, `"m.favourite"`, …).
+     * - Values are the `order` field; `0.0` is used when the tag exists but
+     * has no order set (UniFFI HashMap can't carry `Option<f64>` cleanly,
+     * and the iOS layer treats `0.0` as "no explicit order").
+     * - Returns an empty map when no `m.tag` event exists for the room.
+     */
+    func tags() async throws  -> [String: Double]
     
     /**
      * Creates a new [`ThreadListService`] for this room.
@@ -9555,6 +9589,30 @@ open func removeRoomAliasFromRoomDirectory(alias: String)async throws  -> Bool  
 }
     
     /**
+     * Removes a tag from the room.
+     *
+     * `tag` is the wire-form tag name (e.g. `"u.work"`, `"m.favourite"`).
+     * If the tag is not present the upstream SDK still issues the delete
+     * request and returns Ok.
+     */
+open func removeTag(tag: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_matrix_sdk_ffi_fn_method_room_remove_tag(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(tag)
+                )
+            },
+            pollFunc: ffi_matrix_sdk_ffi_rust_future_poll_void,
+            completeFunc: ffi_matrix_sdk_ffi_rust_future_complete_void,
+            freeFunc: ffi_matrix_sdk_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeClientError_lift
+        )
+}
+    
+    /**
      * Reports an event from the room.
      *
      * # Arguments
@@ -9838,6 +9896,34 @@ open func setOwnMemberDisplayName(displayName: String?)async throws   {
 }
     
     /**
+     * Sets a tag on the room (creates or updates the tag).
+     *
+     * `tag` is the wire-form tag name (e.g. `"u.work"`, `"m.favourite"`,
+     * `"m.lowpriority"`, or any custom `m.*` / `u.*` value). Parsing is
+     * delegated to ruma's `TagName::from(&str)` which dispatches to the
+     * correct enum variant.
+     *
+     * `tag_order` is the optional sort order (`Option<f64>`) — `None` writes
+     * a `TagInfo` with no order field.
+     */
+open func setTag(tag: String, tagOrder: Double?)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_matrix_sdk_ffi_fn_method_room_set_tag(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(tag),FfiConverterOptionDouble.lower(tagOrder)
+                )
+            },
+            pollFunc: ffi_matrix_sdk_ffi_rust_future_poll_void,
+            completeFunc: ffi_matrix_sdk_ffi_rust_future_complete_void,
+            freeFunc: ffi_matrix_sdk_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeClientError_lift
+        )
+}
+    
+    /**
      * Set a MSC4306 subscription to a thread in this room, based on the thread
      * root event id.
      *
@@ -10095,6 +10181,33 @@ open func suggestedRoleForUser(userId: String)async throws  -> RoomMemberRole  {
             completeFunc: ffi_matrix_sdk_ffi_rust_future_complete_rust_buffer,
             freeFunc: ffi_matrix_sdk_ffi_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeRoomMemberRole_lift,
+            errorHandler: FfiConverterTypeClientError_lift
+        )
+}
+    
+    /**
+     * Reads the room's `m.tag` account-data event and returns a
+     * `HashMap<tag_id, order>` map.
+     *
+     * - Keys are the wire-form tag name (`"u.work"`, `"m.favourite"`, …).
+     * - Values are the `order` field; `0.0` is used when the tag exists but
+     * has no order set (UniFFI HashMap can't carry `Option<f64>` cleanly,
+     * and the iOS layer treats `0.0` as "no explicit order").
+     * - Returns an empty map when no `m.tag` event exists for the room.
+     */
+open func tags()async throws  -> [String: Double]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_matrix_sdk_ffi_fn_method_room_tags(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_matrix_sdk_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_matrix_sdk_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_matrix_sdk_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterDictionaryStringDouble.lift,
             errorHandler: FfiConverterTypeClientError_lift
         )
 }
@@ -49727,6 +49840,32 @@ fileprivate struct FfiConverterDictionaryStringInt64: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterDictionaryStringDouble: FfiConverterRustBuffer {
+    public static func write(_ value: [String: Double], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterDouble.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: Double] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: Double]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterDouble.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
     public static func write(_ value: [String: String], into buf: inout [UInt8]) {
         let len = Int32(value.count)
@@ -51227,6 +51366,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_matrix_sdk_ffi_checksum_method_room_remove_room_alias_from_room_directory() != 26389) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_matrix_sdk_ffi_checksum_method_room_remove_tag() != 8674) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_matrix_sdk_ffi_checksum_method_room_report_content() != 37734) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -51264,6 +51406,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_matrix_sdk_ffi_checksum_method_room_set_own_member_display_name() != 40370) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_matrix_sdk_ffi_checksum_method_room_set_tag() != 56982) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_matrix_sdk_ffi_checksum_method_room_set_thread_subscription() != 55986) {
@@ -51306,6 +51451,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_matrix_sdk_ffi_checksum_method_room_suggested_role_for_user() != 58040) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_matrix_sdk_ffi_checksum_method_room_tags() != 29231) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_matrix_sdk_ffi_checksum_method_room_thread_list_service() != 13714) {

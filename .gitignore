@@ -1,5 +1,6 @@
 .DS_Store
 .build
+/build
 /Packages
 /*.xcodeproj
 xcuserdata/
@@ -7,3 +8,5 @@ DerivedData/
 .swiftpm
 Package.resolved
 MatrixSDKFFI.xcframework.zip
+MatrixSDKFFI.xcframework/
+MatrixSDKFFI.xcframework.pre-catalyst.bak/

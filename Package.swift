@@ -23,7 +23,7 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "MatrixSDKFFI",
-            path: "../matrix-rust-sdk/bindings/apple/generated/MatrixSDKFFI.xcframework"
+            path: "MatrixSDKFFI.xcframework"
         ),
         .target(name: "MatrixRustSDK", dependencies: [.target(name: "MatrixSDKFFI")])
     ]
