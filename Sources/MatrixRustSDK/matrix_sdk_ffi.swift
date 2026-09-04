@@ -954,6 +954,23 @@ public protocol ClientProtocol: AnyObject, Sendable {
      */
     func enableSendQueueUploadProgress(enable: Bool) 
     
+    /**
+     * Olm-encrypt a custom event and send it to specific devices.
+     *
+     * `content_json` is the event content as a JSON string.
+     *
+     * Returns the devices the message could **not** be delivered to; an empty
+     * list means every recipient got it. A partial failure is deliberately not
+     * an error: MatrixRTC uses this to share call media keys, and one
+     * unreachable device must not fail the call for everyone else.
+     *
+     * Keys are shared with unverified devices too
+     * (`CollectStrategy::AllDevices`, the default and what Element X uses).
+     * MSC4153 discourages that for room messages, but a call participant on an
+     * unverified device would otherwise get silence rather than a warning.
+     */
+    func encryptAndSendToDevice(recipients: [ToDeviceRecipient], eventType: String, contentJson: String) async throws  -> [ToDeviceRecipient]
+    
     func encryption()  -> Encryption
     
     /**
@@ -1323,6 +1340,22 @@ public protocol ClientProtocol: AnyObject, Sendable {
     func startSsoLogin(redirectUrl: String, idpId: String?) async throws  -> SsoHandler
     
     /**
+     * Subscribe to incoming to-device events of a single event type.
+     *
+     * Events are delivered after Olm decryption, so `content_json` carries the
+     * plaintext content for encrypted events. This exists for MatrixRTC, which
+     * receives per-participant call media keys as
+     * `io.element.call.encryption_keys` to-device events; before this, only the
+     * in-process widget driver could observe them.
+     *
+     * Filtering happens here rather than on the caller's side so a subscriber
+     * is not woken for every unrelated to-device message.
+     *
+     * The subscription lives until the returned handle is dropped.
+     */
+    func subscribeToDeviceEvents(eventType: String, listener: ToDeviceEventListener)  -> TaskHandle
+    
+    /**
      * Subscribe to duplicate key upload errors triggered by requests to
      * /keys/upload.
      */
@@ -1433,6 +1466,15 @@ public protocol ClientProtocol: AnyObject, Sendable {
      * are always requested.
      */
     func urlForOidc(oidcConfiguration: OidcConfiguration, prompt: OidcPrompt?, loginHint: String?, deviceId: String?, additionalScopes: [String]?) async throws  -> OAuthAuthorizationData
+    
+    /**
+     * The device IDs currently known for a user.
+     *
+     * MatrixRTC addresses call media keys to the devices named in the call
+     * membership state, but needs this to fall back to a user's full device
+     * list when membership does not name one.
+     */
+    func userDeviceIds(userId: String) async throws  -> [String]
     
     func userId() throws  -> String
     
@@ -1878,6 +1920,38 @@ open func enableSendQueueUploadProgress(enable: Bool)  {try! rustCall() {
         FfiConverterBool.lower(enable),$0
     )
 }
+}
+    
+    /**
+     * Olm-encrypt a custom event and send it to specific devices.
+     *
+     * `content_json` is the event content as a JSON string.
+     *
+     * Returns the devices the message could **not** be delivered to; an empty
+     * list means every recipient got it. A partial failure is deliberately not
+     * an error: MatrixRTC uses this to share call media keys, and one
+     * unreachable device must not fail the call for everyone else.
+     *
+     * Keys are shared with unverified devices too
+     * (`CollectStrategy::AllDevices`, the default and what Element X uses).
+     * MSC4153 discourages that for room messages, but a call participant on an
+     * unverified device would otherwise get silence rather than a warning.
+     */
+open func encryptAndSendToDevice(recipients: [ToDeviceRecipient], eventType: String, contentJson: String)async throws  -> [ToDeviceRecipient]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_matrix_sdk_ffi_fn_method_client_encrypt_and_send_to_device(
+                    self.uniffiCloneHandle(),
+                    FfiConverterSequenceTypeToDeviceRecipient.lower(recipients),FfiConverterString.lower(eventType),FfiConverterString.lower(contentJson)
+                )
+            },
+            pollFunc: ffi_matrix_sdk_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_matrix_sdk_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_matrix_sdk_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeToDeviceRecipient.lift,
+            errorHandler: FfiConverterTypeClientError_lift
+        )
 }
     
 open func encryption() -> Encryption  {
@@ -3102,6 +3176,30 @@ open func startSsoLogin(redirectUrl: String, idpId: String?)async throws  -> Sso
 }
     
     /**
+     * Subscribe to incoming to-device events of a single event type.
+     *
+     * Events are delivered after Olm decryption, so `content_json` carries the
+     * plaintext content for encrypted events. This exists for MatrixRTC, which
+     * receives per-participant call media keys as
+     * `io.element.call.encryption_keys` to-device events; before this, only the
+     * in-process widget driver could observe them.
+     *
+     * Filtering happens here rather than on the caller's side so a subscriber
+     * is not woken for every unrelated to-device message.
+     *
+     * The subscription lives until the returned handle is dropped.
+     */
+open func subscribeToDeviceEvents(eventType: String, listener: ToDeviceEventListener) -> TaskHandle  {
+    return try!  FfiConverterTypeTaskHandle_lift(try! rustCall() {
+    uniffi_matrix_sdk_ffi_fn_method_client_subscribe_to_device_events(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(eventType),
+        FfiConverterCallbackInterfaceToDeviceEventListener_lower(listener),$0
+    )
+})
+}
+    
+    /**
      * Subscribe to duplicate key upload errors triggered by requests to
      * /keys/upload.
      */
@@ -3380,6 +3478,30 @@ open func urlForOidc(oidcConfiguration: OidcConfiguration, prompt: OidcPrompt?, 
             freeFunc: ffi_matrix_sdk_ffi_rust_future_free_u64,
             liftFunc: FfiConverterTypeOAuthAuthorizationData_lift,
             errorHandler: FfiConverterTypeOidcError_lift
+        )
+}
+    
+    /**
+     * The device IDs currently known for a user.
+     *
+     * MatrixRTC addresses call media keys to the devices named in the call
+     * membership state, but needs this to fall back to a user's full device
+     * list when membership does not name one.
+     */
+open func userDeviceIds(userId: String)async throws  -> [String]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_matrix_sdk_ffi_fn_method_client_user_device_ids(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(userId)
+                )
+            },
+            pollFunc: ffi_matrix_sdk_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_matrix_sdk_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_matrix_sdk_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceString.lift,
+            errorHandler: FfiConverterTypeClientError_lift
         )
 }
     
@@ -24998,6 +25120,172 @@ public func FfiConverterTypeTimelineUniqueId_lower(_ value: TimelineUniqueId) ->
 }
 
 
+/**
+ * An incoming to-device event, delivered after Olm decryption.
+ */
+public struct ToDeviceEventPayload: Equatable, Hashable {
+    /**
+     * The event type, e.g. `io.element.call.encryption_keys`.
+     */
+    public var eventType: String
+    /**
+     * The user ID of the sender.
+     */
+    public var sender: String
+    /**
+     * The device the event was sent from, when it arrived encrypted and the
+     * sending device could be identified.
+     *
+     * MatrixRTC needs this to bind a media key to a specific participant
+     * device, since one user can be in a call from several devices at once.
+     */
+    public var senderDeviceId: String?
+    /**
+     * The event's `content` object, serialized as JSON.
+     */
+    public var contentJson: String
+    /**
+     * Whether the event arrived Olm-encrypted. Callers that treat the content
+     * as sensitive should refuse to act on an event where this is false.
+     */
+    public var isEncrypted: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The event type, e.g. `io.element.call.encryption_keys`.
+         */eventType: String, 
+        /**
+         * The user ID of the sender.
+         */sender: String, 
+        /**
+         * The device the event was sent from, when it arrived encrypted and the
+         * sending device could be identified.
+         *
+         * MatrixRTC needs this to bind a media key to a specific participant
+         * device, since one user can be in a call from several devices at once.
+         */senderDeviceId: String?, 
+        /**
+         * The event's `content` object, serialized as JSON.
+         */contentJson: String, 
+        /**
+         * Whether the event arrived Olm-encrypted. Callers that treat the content
+         * as sensitive should refuse to act on an event where this is false.
+         */isEncrypted: Bool) {
+        self.eventType = eventType
+        self.sender = sender
+        self.senderDeviceId = senderDeviceId
+        self.contentJson = contentJson
+        self.isEncrypted = isEncrypted
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ToDeviceEventPayload: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeToDeviceEventPayload: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ToDeviceEventPayload {
+        return
+            try ToDeviceEventPayload(
+                eventType: FfiConverterString.read(from: &buf), 
+                sender: FfiConverterString.read(from: &buf), 
+                senderDeviceId: FfiConverterOptionString.read(from: &buf), 
+                contentJson: FfiConverterString.read(from: &buf), 
+                isEncrypted: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ToDeviceEventPayload, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.eventType, into: &buf)
+        FfiConverterString.write(value.sender, into: &buf)
+        FfiConverterOptionString.write(value.senderDeviceId, into: &buf)
+        FfiConverterString.write(value.contentJson, into: &buf)
+        FfiConverterBool.write(value.isEncrypted, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeToDeviceEventPayload_lift(_ buf: RustBuffer) throws -> ToDeviceEventPayload {
+    return try FfiConverterTypeToDeviceEventPayload.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeToDeviceEventPayload_lower(_ value: ToDeviceEventPayload) -> RustBuffer {
+    return FfiConverterTypeToDeviceEventPayload.lower(value)
+}
+
+
+/**
+ * The devices a to-device message could not be delivered to.
+ */
+public struct ToDeviceRecipient: Equatable, Hashable {
+    public var userId: String
+    public var deviceId: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(userId: String, deviceId: String) {
+        self.userId = userId
+        self.deviceId = deviceId
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ToDeviceRecipient: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeToDeviceRecipient: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ToDeviceRecipient {
+        return
+            try ToDeviceRecipient(
+                userId: FfiConverterString.read(from: &buf), 
+                deviceId: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ToDeviceRecipient, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.userId, into: &buf)
+        FfiConverterString.write(value.deviceId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeToDeviceRecipient_lift(_ buf: RustBuffer) throws -> ToDeviceRecipient {
+    return try FfiConverterTypeToDeviceRecipient.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeToDeviceRecipient_lower(_ value: ToDeviceRecipient) -> RustBuffer {
+    return FfiConverterTypeToDeviceRecipient.lower(value)
+}
+
+
 public struct TracingConfiguration: Equatable, Hashable {
     /**
      * The desired log level.
@@ -46123,6 +46411,136 @@ public func FfiConverterCallbackInterfaceTimelineListener_lower(_ v: TimelineLis
 
 
 
+/**
+ * A listener for incoming to-device events of one event type.
+ */
+public protocol ToDeviceEventListener: AnyObject, Sendable {
+    
+    /**
+     * Called for each matching to-device event.
+     */
+    func onEvent(event: ToDeviceEventPayload) 
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceToDeviceEventListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceToDeviceEventListener] = [UniffiVTableCallbackInterfaceToDeviceEventListener(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterCallbackInterfaceToDeviceEventListener.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface ToDeviceEventListener: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterCallbackInterfaceToDeviceEventListener.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface ToDeviceEventListener: handle missing in uniffiClone")
+            }
+        },
+        onEvent: { (
+            uniffiHandle: UInt64,
+            event: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceToDeviceEventListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onEvent(
+                     event: try FfiConverterTypeToDeviceEventPayload_lift(event)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )]
+}
+
+private func uniffiCallbackInitToDeviceEventListener() {
+    uniffi_matrix_sdk_ffi_fn_init_callback_vtable_todeviceeventlistener(UniffiCallbackInterfaceToDeviceEventListener.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceToDeviceEventListener {
+    fileprivate static let handleMap = UniffiHandleMap<ToDeviceEventListener>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceToDeviceEventListener : FfiConverter {
+    typealias SwiftType = ToDeviceEventListener
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceToDeviceEventListener_lift(_ handle: UInt64) throws -> ToDeviceEventListener {
+    return try FfiConverterCallbackInterfaceToDeviceEventListener.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceToDeviceEventListener_lower(_ v: ToDeviceEventListener) -> UInt64 {
+    return FfiConverterCallbackInterfaceToDeviceEventListener.lower(v)
+}
+
+
+
+
 public protocol TypingNotificationsListener: AnyObject, Sendable {
     
     func call(typingUserIds: [String]) 
@@ -49213,6 +49631,31 @@ fileprivate struct FfiConverterSequenceTypeThreadListItem: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeToDeviceRecipient: FfiConverterRustBuffer {
+    typealias SwiftType = [ToDeviceRecipient]
+
+    public static func write(_ value: [ToDeviceRecipient], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeToDeviceRecipient.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ToDeviceRecipient] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ToDeviceRecipient]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeToDeviceRecipient.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeUserPowerLevelUpdate: FfiConverterRustBuffer {
     typealias SwiftType = [UserPowerLevelUpdate]
 
@@ -50598,6 +51041,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_matrix_sdk_ffi_checksum_method_client_enable_send_queue_upload_progress() != 30956) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_matrix_sdk_ffi_checksum_method_client_encrypt_and_send_to_device() != 52948) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_matrix_sdk_ffi_checksum_method_client_encryption() != 13362) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -50793,6 +51239,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_matrix_sdk_ffi_checksum_method_client_start_sso_login() != 11891) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_matrix_sdk_ffi_checksum_method_client_subscribe_to_device_events() != 10488) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_matrix_sdk_ffi_checksum_method_client_subscribe_to_duplicate_key_upload_errors() != 63604) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -50833,6 +51282,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_matrix_sdk_ffi_checksum_method_client_url_for_oidc() != 50450) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_matrix_sdk_ffi_checksum_method_client_user_device_ids() != 31793) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_matrix_sdk_ffi_checksum_method_client_user_id() != 11375) {
@@ -52035,6 +52487,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_matrix_sdk_ffi_checksum_method_syncnotificationlistener_on_notification() != 39259) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_matrix_sdk_ffi_checksum_method_todeviceeventlistener_on_event() != 61294) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_matrix_sdk_ffi_checksum_method_backupstatelistener_on_update() != 43998) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -52205,6 +52660,7 @@ private let initializationResult: InitializationResult = {
     uniffiCallbackInitThreadListEntriesListener()
     uniffiCallbackInitThreadListPaginationStateListener()
     uniffiCallbackInitTimelineListener()
+    uniffiCallbackInitToDeviceEventListener()
     uniffiCallbackInitTypingNotificationsListener()
     uniffiCallbackInitUnableToDecryptDelegate()
     uniffiCallbackInitVerificationStateListener()
